@@ -37,12 +37,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
-	"strconv"
-
 	"github.com/dosco/graphjin/core"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/dosco/graphjin/serv/auth/provider"
 )
@@ -125,6 +125,114 @@ type Auth struct {
 	MagicLink struct {
 		Secret string
 	}
+
+	// Gorilla cookie authentication
+	Gorilla struct {
+		// Type redis
+		Type string
+
+		Redis struct {
+			// Network The network type, either tcp or unix.
+			// Default is tcp.
+			Network string
+
+			// Addr host:port address.
+			Addr string
+
+			// Username Use the specified Username to authenticate the current connection
+			// with one of the connections defined in the ACL list when connecting
+			// to a Redis 6.0 instance, or greater, that is using the Redis ACL system.
+			Username string
+
+			// Password Optional password. Must match the password specified in the
+			// requirepass server configuration option (if connecting to a Redis 5.0 instance, or lower),
+			// or the User Password when connecting to a Redis 6.0 instance, or greater,
+			// that is using the Redis ACL system.
+			Password string
+
+			// All redis option bellow use the default value when set to 0
+
+			// DB Database to be selected after connecting to the server.
+			DB int
+
+			// MaxRetries Maximum number of retries before giving up.
+			// Default is 3 retries.
+			MaxRetries int `mapstructure:"max_retries"`
+
+			// MinRetryBackoff Minimum backoff between each retry.
+			// Default is 8 milliseconds; -1 disables backoff.
+			MinRetryBackoff time.Duration `mapstructure:"min_retry_backoff"`
+
+			// MaxRetryBackoff Maximum backoff between each retry.
+			// Default is 512 milliseconds; -1 disables backoff.
+			MaxRetryBackoff time.Duration `mapstructure:"max_retry_backoff"`
+
+			// DialTimeout Dial timeout for establishing new connections.
+			// Default is 5 seconds.
+			DialTimeout time.Duration `mapstructure:"dial_timeout"`
+
+			// ReadTimeout Timeout for socket reads. If reached, commands will fail
+			// with a timeout instead of blocking. Use value -1 for no timeout and 0 for default.
+			// Default is 3 seconds.
+			ReadTimeout time.Duration `mapstructure:"read_timeout"`
+
+			// WriteTimeout Timeout for socket writes. If reached, commands will fail
+			// with a timeout instead of blocking.
+			// Default is ReadTimeout.
+			WriteTimeout time.Duration `mapstructure:"write_timeout"`
+
+			// PoolSize Maximum number of socket connections.
+			// Default is 10 connections per every CPU as reported by runtime.NumCPU.
+			PoolSize int `mapstructure:"pool_size"`
+
+			// MinIdleConns Minimum number of idle connections which is useful when establishing
+			// new connection is slow.
+			MinIdleConns int `mapstructure:"min_idle_connns"`
+
+			// MaxConnAge Connection age at which client retires (closes) the connection.
+			// Default is to not close aged connections.
+			MaxConnAge time.Duration `mapstructure:"max_idle"`
+
+			// PoolTimeout Amount of time client waits for connection if all connections
+			// are busy before returning an error.
+			// Default is ReadTimeout + 1 second.
+			PoolTimeout time.Duration `mapstructure:"pool_timeout"`
+
+			// IdleTimeout Amount of time after which client closes idle connections.
+			// Should be less than server's timeout.
+			// Default is 5 minutes. -1 disables idle timeout check.
+			IdleTimeout time.Duration `mapstructure:"idle_timeout"`
+
+			// IdleCheckFrequency Frequency of idle checks made by idle connections reaper.
+			// Default is 1 minute. -1 disables idle connections reaper,
+			// but idle connections are still discarded by the client
+			// if IdleTimeout is set.
+			IdleCheckFrequency time.Duration `mapstructure:"idle_check_frequency"`
+		}
+
+		Store struct {
+			Prefix    string `mapstructure:"prefix"`
+			UserIdKey string `mapstructure:"user_id_key"`
+		}
+
+		SessionOptions struct {
+			Path   string
+			Domain string
+			// MaxAge=0 means no Max-Age attribute specified and the cookie will be
+			// deleted after the browser session ends.
+			// MaxAge<0 means delete cookie immediately.
+			// MaxAge>0 means Max-Age attribute present and given in seconds.
+			MaxAge   int `mapstructure:"max_age"`
+			Secure   bool
+			HttpOnly bool `mapstructure:"http_only"`
+			// Defaults to http.SameSiteDefaultMode
+			// 	SameSiteDefaultMode SameSite = iota + 1
+			//	SameSiteLaxMode
+			//	SameSiteStrictMode
+			//	SameSiteNoneMode
+			SameSite http.SameSite `mapstructure:"same_site"`
+		} `mapstructure:"session_options"`
+	}
 }
 
 type handlerFunc func(w http.ResponseWriter, r *http.Request) (context.Context, error)
@@ -158,6 +266,10 @@ func NewAuth(ac Auth, log *zap.Logger, opt Options) (
 
 	// case "magiclink":
 	// 	h, err = MagicLinkHandler(ac, next)
+
+	case "gorilla":
+		h, err = GorillaHandler(ac)
+
 	case "", "none":
 		return nil, nil
 
